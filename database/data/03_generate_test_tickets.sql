@@ -2,82 +2,104 @@
 -- WorkFlow - Generate Test Tickets
 -- ============================================================
 
-DECLARE
-    l_user_count NUMBER;
-    l_asset_count NUMBER;
-BEGIN
-
-    SELECT COUNT(*)
-      INTO l_user_count
-      FROM users;
-
-    SELECT COUNT(*)
-      INTO l_asset_count
-      FROM assets;
-
-    IF l_user_count = 0 THEN
-        RAISE_APPLICATION_ERROR(
-            -20001,
-            'No users available.'
-        );
-    END IF;
-
-    INSERT INTO tickets (
-        title,
-        description,
-        priority,
-        status,
-        created_by,
-        assigned_to,
-        asset_id,
-        created_at,
-        updated_at
-    )
+INSERT INTO tickets (
+    title,
+    description,
+    priority,
+    status,
+    created_by,
+    assigned_to,
+    asset_id,
+    created_at,
+    updated_at
+)
+WITH
+user_pool AS (
     SELECT
-        'Test Ticket #' || LEVEL,
-
-        'Automatically generated test ticket for performance testing.',
-
-        CASE MOD(LEVEL, 4)
-            WHEN 0 THEN 'LOW'
-            WHEN 1 THEN 'MEDIUM'
-            WHEN 2 THEN 'HIGH'
-            ELSE 'CRITICAL'
-        END,
-
-        CASE MOD(LEVEL, 4)
-            WHEN 0 THEN 'OPEN'
-            WHEN 1 THEN 'IN_PROGRESS'
-            WHEN 2 THEN 'RESOLVED'
-            ELSE 'CLOSED'
-        END,
-
-        MOD(LEVEL - 1, l_user_count) + 1,
-
-        CASE
-            WHEN MOD(LEVEL, 3) = 0 THEN NULL
-            ELSE MOD(LEVEL, l_user_count) + 1
-        END,
-
-        CASE
-            WHEN MOD(LEVEL, 5) = 0 THEN NULL
-            ELSE MOD(LEVEL - 1, l_asset_count) + 1
-        END,
-
-        SYSTIMESTAMP - NUMTODSINTERVAL(
-            MOD(LEVEL, 365),
-            'DAY'
-        ),
-
-        SYSTIMESTAMP - NUMTODSINTERVAL(
-            MOD(LEVEL, 365),
-            'DAY'
-        )
-
+        user_id,
+        ROW_NUMBER() OVER (ORDER BY user_id) AS rn
+    FROM users
+),
+agent_pool AS (
+    SELECT
+        user_id,
+        ROW_NUMBER() OVER (ORDER BY user_id) AS rn
+    FROM users
+    WHERE role = 'AGENT'
+),
+asset_pool AS (
+    SELECT
+        asset_id,
+        ROW_NUMBER() OVER (ORDER BY asset_id) AS rn
+    FROM assets
+),
+user_count AS (
+    SELECT COUNT(*) AS total
+    FROM user_pool
+),
+agent_count AS (
+    SELECT COUNT(*) AS total
+    FROM agent_pool
+),
+asset_count AS (
+    SELECT COUNT(*) AS total
+    FROM asset_pool
+),
+numbers AS (
+    SELECT LEVEL AS n
     FROM dual
-    CONNECT BY LEVEL <= 10000;
+    CONNECT BY LEVEL <= 10000
+)
+SELECT
+    'Performance Test Ticket #' || n.n,
 
-    COMMIT;
+    'Automatically generated ticket for SQL performance testing.',
 
-END;
-/
+    CASE MOD(n.n, 4)
+        WHEN 0 THEN 'LOW'
+        WHEN 1 THEN 'MEDIUM'
+        WHEN 2 THEN 'HIGH'
+        ELSE 'CRITICAL'
+    END,
+
+    CASE MOD(n.n, 4)
+        WHEN 0 THEN 'OPEN'
+        WHEN 1 THEN 'IN_PROGRESS'
+        WHEN 2 THEN 'RESOLVED'
+        ELSE 'CLOSED'
+    END,
+
+    u.user_id,
+
+    CASE
+        WHEN MOD(n.n, 5) = 0 THEN NULL
+        ELSE a.user_id
+    END,
+
+    CASE
+        WHEN MOD(n.n, 7) = 0 THEN NULL
+        ELSE ast.asset_id
+    END,
+
+    SYSTIMESTAMP
+        - NUMTODSINTERVAL(MOD(n.n, 3650), 'DAY'),
+
+    SYSTIMESTAMP
+        - NUMTODSINTERVAL(MOD(n.n, 3650), 'DAY')
+
+FROM numbers n
+
+CROSS JOIN user_count uc
+CROSS JOIN agent_count ac
+CROSS JOIN asset_count xc
+
+JOIN user_pool u
+    ON u.rn = MOD(n.n - 1, uc.total) + 1
+
+JOIN agent_pool a
+    ON a.rn = MOD(n.n - 1, ac.total) + 1
+
+JOIN asset_pool ast
+    ON ast.rn = MOD(n.n - 1, xc.total) + 1;
+
+COMMIT;
