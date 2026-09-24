@@ -69,6 +69,9 @@ will always perform better.
 
 Conclusion
 
+Oracle selected IDX_TICKETS_STATUS for the tested query because its estimated cost was lower (17 versus 71). The composite index IDX_TICKETS_STATUS_CREATED eliminated the explicit sort, but Oracle estimated a higher overall cost. 
+The test also revealed that current optimizer statistics were not representative of the 10,005-row dataset, so the Explain costs should not be interpreted as definitive runtime measurements.
+
 For this query and current dataset, Oracle's optimizer prefers
 the single-column STATUS index.
 
